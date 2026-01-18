@@ -1,9 +1,10 @@
 import os
 import logging
 from flask import Flask, request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import aiohttp
+import asyncio
 
 # Setup logging
 logging.basicConfig(
@@ -16,13 +17,23 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 COOLIFY_API_URL = os.getenv('COOLIFY_API_URL')
 COOLIFY_API_TOKEN = os.getenv('COOLIFY_API_TOKEN')
-WEBHOOK_URL = os.getenv('WEBHOOK_URL')
+WEBHOOK_URL = os.getenv('WEBHOOK_URL', 'https://bot-cdn.cdn-gate.com')
 PORT = int(os.getenv('PORT', 3000))
+
+# Validate required environment variables
+if not BOT_TOKEN:
+    logger.error('❌ BOT_TOKEN is not set!')
+    exit(1)
+
+if not WEBHOOK_URL:
+    logger.error('❌ WEBHOOK_URL is not set!')
+    exit(1)
 
 # Flask app untuk webhook
 app = Flask(__name__)
 
-# Telegram bot application
+# Telegram bot
+bot = Bot(token=BOT_TOKEN)
 application = None
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -127,7 +138,7 @@ async def setup_webhook():
         
         logger.info(f'Setting up webhook: {full_webhook_url}')
         
-        await application.bot.set_webhook(full_webhook_url)
+        await bot.set_webhook(full_webhook_url)
         logger.info('✅ Webhook set successfully')
     except Exception as error:
         logger.error(f'❌ Failed to set webhook: {error}')
@@ -141,15 +152,15 @@ def health_check():
 async def webhook():
     """Webhook endpoint for Telegram"""
     try:
-        update = Update.de_json(request.get_json(force=True), application.bot)
+        update = Update.de_json(request.get_json(force=True), bot)
         await application.process_update(update)
         return {'ok': True}, 200
     except Exception as error:
         logger.error(f'Error handling update: {error}')
         return {'ok': False, 'error': str(error)}, 400
 
-async def main():
-    """Main function"""
+async def init_app():
+    """Initialize application"""
     global application
     
     # Create application
@@ -163,9 +174,12 @@ async def main():
     # Setup webhook
     await setup_webhook()
     
-    logger.info(f'🤖 Bot server running on port {PORT}')
+    logger.info(f'🤖 Bot initialized successfully')
 
 if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())
-    app.run(host='0.0.0.0', port=PORT, debug=False)
+    # Initialize bot
+    asyncio.run(init_app())
+    
+    # Run Flask server
+    logger.info(f'🚀 Starting Flask server on port {PORT}')
+    app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
