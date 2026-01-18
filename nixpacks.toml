@@ -1,8 +1,8 @@
 [build]
-cmds = ["npm ci"]
+cmds = ["pip install -r requirements.txt"]
 
 [start]
-cmd = "npm start"
+cmd = "python bot.py"
 
 [[ports]]
 port = 3000
