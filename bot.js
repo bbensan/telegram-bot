@@ -1,9 +1,15 @@
 const { Telegraf } = require('telegraf');
 const axios = require('axios');
+const express = require('express');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const COOLIFY_API = process.env.COOLIFY_API_URL;
 const COOLIFY_TOKEN = process.env.COOLIFY_API_TOKEN;
+
+// Express app untuk webhook
+const app = express();
+const PORT = process.env.PORT || 3000;
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'https://bot-cdn.cdn-gate.com';
 
 // Command: /start
 bot.command('start', (ctx) => {
@@ -113,4 +119,36 @@ What can I help you today?`;
   });
 });
 
-bot.launch();
+// Middleware untuk express
+app.use(express.json());
+
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({ status: 'Bot is running ✅' });
+});
+
+// Webhook endpoint untuk Telegram
+app.post(`/bot${process.env.BOT_TOKEN}`, (req, res) => {
+  bot.handleUpdate(req.body, res);
+});
+
+// Setup webhook
+async function setupWebhook() {
+  try {
+    const webhookPath = `/bot${process.env.BOT_TOKEN}`;
+    const fullWebhookUrl = `${WEBHOOK_URL}${webhookPath}`;
+    
+    console.log(`Setting up webhook: ${fullWebhookUrl}`);
+    
+    await bot.telegram.setWebhook(fullWebhookUrl);
+    console.log('✅ Webhook set successfully');
+  } catch (error) {
+    console.error('❌ Failed to set webhook:', error.message);
+  }
+}
+
+// Start server
+app.listen(PORT, async () => {
+  console.log(`🤖 Bot server running on port ${PORT}`);
+  await setupWebhook();
+});
