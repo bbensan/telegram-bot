@@ -25,6 +25,12 @@ const config = {
     interval: 300, // ms
   },
 
+  // Session timeout (auto-logout)
+  session: {
+    idleTimeoutMinutes: parseInt(process.env.SESSION_IDLE_TIMEOUT_MINUTES) || 15,
+    checkIntervalMinutes: parseInt(process.env.SESSION_CHECK_INTERVAL_MINUTES) || 1,
+  },
+
   // Validate config
   validate() {
     if (!this.botToken) {

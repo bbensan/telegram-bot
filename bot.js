@@ -3,17 +3,19 @@
 // ═══════════════════════════════════════════════
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
 const config = require('./config');
 const credentialsService = require('./credentialsService');
+const logger = require('./logger');
+const sessionManager = require('./sessionManager');
+const app = require('./app');
 
 // Validate config
 try {
   config.validate();
-  console.log('✅ Config valid');
-  console.log('📋 Info:', config.getInfo());
+  logger.success('Config valid');
+  logger.info('Config info', config.getInfo());
 } catch (error) {
-  console.error(error.message);
+  logger.error(error.message);
   process.exit(1);
 }
 
@@ -25,11 +27,11 @@ let bot;
 
 if (config.nodeEnv === 'dev') {
   // DEVELOPMENT - POLLING
-  console.log('📱 MODE: POLLING (Development)');
+  logger.info('MODE: POLLING (Development)');
   bot = new TelegramBot(config.botToken, { polling: true });
 } else {
   // PRODUCTION - WEBHOOK
-  console.log('🌐 MODE: WEBHOOK (Production)');
+  logger.info('MODE: WEBHOOK (Production)');
   bot = new TelegramBot(config.botToken, {
     webHook: {
       port: config.webhook.port,
@@ -42,9 +44,6 @@ if (config.nodeEnv === 'dev') {
 // SETUP EXPRESS (untuk production webhook)
 // ═══════════════════════════════════════════════
 
-const app = express();
-app.use(express.json());
-
 if (config.nodeEnv === 'prod') {
   // Register webhook
   const webhookPath = `/bot${config.botToken}`;
@@ -52,11 +51,11 @@ if (config.nodeEnv === 'prod') {
   bot
     .setWebhook(`${config.webhook.url}${webhookPath}`)
     .then(() => {
-      console.log('✅ Webhook berhasil didaftarkan ke Telegram');
-      console.log(`📍 URL: ${config.webhook.url}${webhookPath}`);
+      logger.success('Webhook successfully registered to Telegram');
+      logger.info(`Webhook URL: ${config.webhook.url}${webhookPath}`);
     })
     .catch((err) => {
-      console.error('❌ Gagal mendaftarkan webhook:', err.message);
+      logger.error('Failed to register webhook', { error: err.message });
       process.exit(1);
     });
 
@@ -64,21 +63,12 @@ if (config.nodeEnv === 'prod') {
   app.post(webhookPath, (req, res) => {
     try {
       bot.processUpdate(req.body);
+      logger.debug('Update processed from webhook');
       res.sendStatus(200);
     } catch (error) {
-      console.error('❌ Error processing update:', error);
+      logger.error('Error processing update', { error: error.message });
       res.sendStatus(500);
     }
-  });
-
-  // Health check
-  app.get('/health', (req, res) => {
-    res.json({
-      status: 'OK',
-      message: 'Bot webhook sedang berjalan',
-      timestamp: new Date().toISOString(),
-      mode: 'WEBHOOK',
-    });
   });
 }
 
@@ -89,13 +79,14 @@ bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   const firstName = msg.from.first_name;
 
-  console.log(`👤 [START] User: ${firstName} (${chatId})`);
+  logger.info(`User started the bot`, { chatId, firstName });
 
-  // Cek apakah user sudah verified
+  // Check if user is verified
   if (!credentialsService.isUserVerified(chatId)) {
     bot.sendMessage(
       chatId,
-      `👋 Halo ${firstName}!\n\n${credentialsService.getCredentialsPromptMessage()}`
+      `👋 Hello ${firstName}!\n\n${credentialsService.getCredentialsPromptMessage()}`,
+      { parse_mode: 'Markdown' }
     );
     return;
   }
@@ -103,35 +94,64 @@ bot.onText(/\/start/, (msg) => {
   // User sudah verified - tampilkan menu
   bot.sendMessage(
     chatId,
-    `✅ Halo ${firstName}! Bot Coolify sedang aktif.\n\nKetik /help untuk melihat perintah yang tersedia.`,
+    `✅ Hello ${firstName}! Bot is active.\n\nType /help to see available commands.`,
+    { parse_mode: 'Markdown' }
   );
 });
 
 // ═══════════════════════════════════════════════
 // COMMAND: /verify - Verifikasi credentials
 // ═══════════════════════════════════════════════
+
+// Handle /verify dengan token dan key
 bot.onText(/\/verify\s+(\S+)\s+(\S+)/, (msg, match) => {
   const chatId = msg.chat.id;
   const apiToken = match[1];
   const apiKey = match[2];
 
-  console.log(`🔐 [VERIFY] Chat ${chatId} mencoba verifikasi`);
+  logger.info(`User attempting to verify credentials`, { chatId });
 
   // Verifikasi credentials
   if (credentialsService.verify(apiToken, apiKey)) {
     credentialsService.addVerifiedUser(chatId);
+    sessionManager.createSession(chatId);
     bot.sendMessage(
       chatId,
-      `✅ **VERIFIKASI BERHASIL**\n\nAnda sekarang sudah bisa menggunakan bot ini.\n\nKetik /help untuk melihat perintah yang tersedia.`,
+      `✅ **VERIFICATION SUCCESS**\n\nYou are now able to use this bot.\n\nType /help to see available commands.`,
+      { parse_mode: 'Markdown' }
     );
-    console.log(`✅ [VERIFIED] Chat ${chatId} berhasil terverifikasi`);
+    logger.success(`User verified successfully`, { chatId });
   } else {
     bot.sendMessage(
       chatId,
-      `❌ **VERIFIKASI GAGAL**\n\nCredentials yang Anda berikan tidak valid.\n\nSilakan coba lagi dengan credentials yang benar.`,
+      `❌ **VERIFICATION FAILED**\n\nThe credentials you provided are not valid.\n\nPlease try again with valid credentials.`,
+      { parse_mode: 'Markdown' }
     );
-    console.log(`❌ [VERIFY FAILED] Chat ${chatId} credentials salah`);
+    logger.warn(`Verification failed - invalid credentials`, { chatId });
   }
+});
+
+// Handle /verify tanpa token dan key (validation error)
+bot.onText(/\/verify(?:\s|$)/, (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text.trim();
+
+  // Skip jika sudah ditangani oleh regex sebelumnya (ada token dan key)
+  if (text.match(/\/verify\s+\S+\s+\S+/)) {
+    return;
+  }
+
+  logger.warn(`User sent /verify without credentials`, { chatId });
+
+  const validationMessage = `❌ **INVALID FORMAT**
+
+The /verify command requires 2 parameters.
+
+*Format*:
+\`/verify <API_TOKEN> <API_KEY>\`
+`;
+
+  bot.sendMessage(chatId, validationMessage, { parse_mode: 'Markdown' });
 });
 
 // ═══════════════════════════════════════════════
@@ -140,27 +160,28 @@ bot.onText(/\/verify\s+(\S+)\s+(\S+)/, (msg, match) => {
 bot.onText(/\/help/, (msg) => {
   const chatId = msg.chat.id;
 
-  console.log(`ℹ️ [HELP] User ${chatId} meminta bantuan`);
+  logger.info(`User requested help`, { chatId });
 
   if (!credentialsService.isUserVerified(chatId)) {
     bot.sendMessage(
       chatId,
-      `❌ Anda belum terverifikasi.\n\n${credentialsService.getCredentialsPromptMessage()}`,
+      `❌ You are not verified.\n\n${credentialsService.getCredentialsPromptMessage()}`,
+      { parse_mode: 'Markdown' }
     );
     return;
   }
 
   const helpMessage = `📋 **PERINTAH YANG TERSEDIA**
 
-/start - Mulai bot
-/help - Bantuan (pesan ini)
-/ping - Test koneksi bot
-/status - Cek status bot
-/logout - Logout dari bot
+\`/start\` - Start bot
+\`/help\` - Help (this message)
+\`/ping\` - Test bot connection
+\`/status\` - Check bot status
+\`/logout\` - Logout from bot
 
-Atau kirim pesan apapun untuk test echo.`;
+Or send any message to test echo.`;
 
-  bot.sendMessage(chatId, helpMessage);
+  bot.sendMessage(chatId, helpMessage, { parse_mode: 'Markdown' });
 });
 
 // ═══════════════════════════════════════════════
@@ -170,12 +191,12 @@ bot.onText(/\/ping/, (msg) => {
   const chatId = msg.chat.id;
 
   if (!credentialsService.isUserVerified(chatId)) {
-    bot.sendMessage(chatId, `❌ Anda belum terverifikasi.`);
+    bot.sendMessage(chatId, `❌ You are not verified.`);
     return;
   }
 
-  console.log(`🏓 [PING] User ${chatId}`);
-  bot.sendMessage(chatId, `🏓 Pong! Bot sedang aktif.\n\n⏱️ Mode: ${config.getInfo().mode}`);
+  logger.info(`User pinged bot`, { chatId });
+  bot.sendMessage(chatId, `🏓 Pong! Bot is active.\n\n⏱️ Mode: ${config.getInfo().mode}`);
 });
 
 // ═══════════════════════════════════════════════
@@ -185,7 +206,7 @@ bot.onText(/\/status/, (msg) => {
   const chatId = msg.chat.id;
 
   if (!credentialsService.isUserVerified(chatId)) {
-    bot.sendMessage(chatId, `❌ Anda belum terverifikasi.`);
+    bot.sendMessage(chatId, `❌ You are not verified.`);
     return;
   }
 
@@ -198,7 +219,7 @@ bot.onText(/\/status/, (msg) => {
 ⏲️ Polling: ${info.pollingEnabled ? '✅ Active' : '❌ Inactive'}
 ⏰ Timestamp: ${new Date().toISOString()}`;
 
-  bot.sendMessage(chatId, statusMessage);
+  bot.sendMessage(chatId, statusMessage, { parse_mode: 'Markdown' });
 });
 
 // ═══════════════════════════════════════════════
@@ -208,12 +229,14 @@ bot.onText(/\/logout/, (msg) => {
   const chatId = msg.chat.id;
 
   if (!credentialsService.isUserVerified(chatId)) {
-    bot.sendMessage(chatId, `❌ Anda belum terverifikasi.`);
+    bot.sendMessage(chatId, `❌ You are not verified.`);
     return;
   }
 
   credentialsService.removeVerifiedUser(chatId);
-  bot.sendMessage(chatId, `👋 Anda telah logout.\n\nKetik /start untuk login kembali.`);
+  sessionManager.destroySession(chatId);
+  logger.info(`User logged out manually`, { chatId });
+  bot.sendMessage(chatId, `👋 You have logged out.\n\nType /start to login again.`, { parse_mode: 'Markdown' });
 });
 
 // ═══════════════════════════════════════════════
@@ -228,19 +251,45 @@ bot.on('message', (msg) => {
 
   // Cek verifikasi
   if (!credentialsService.isUserVerified(chatId)) {
-    bot.sendMessage(chatId, `❌ Anda belum terverifikasi.\n\nGunakan /start untuk mulai.`);
+    bot.sendMessage(chatId, `❌ You are not verified.\n\nUse /start to start.`);
     return;
   }
 
-  console.log(`💬 [MESSAGE] Chat ${chatId}: ${text}`);
-  bot.sendMessage(chatId, `💬 Anda mengatakan: "${text}"`);
+  // Update activity untuk session
+  sessionManager.updateActivity(chatId);
+
+  logger.info(`User sent message`, { chatId, message: text });
+  bot.sendMessage(chatId, `💬 You said: "${text}"`);
 });
+
+// ═══════════════════════════════════════════════
+// SESSION EXPIRY HANDLER
+// ═══════════════════════════════════════════════
+sessionManager.onSessionsExpired = (expiredChatIds) => {
+  expiredChatIds.forEach((chatId) => {
+    // Remove dari verified users
+    credentialsService.removeVerifiedUser(chatId);
+    sessionManager.destroySession(chatId);
+
+    // Send notification ke user
+    const idleTimeoutMinutes = config.session.idleTimeoutMinutes;
+    bot.sendMessage(
+      chatId,
+      `⏰ **SESSION EXPIRED**\n\nYour session has expired due to ${idleTimeoutMinutes} minutes of inactivity.\n\nType /start to login again.`,
+      { parse_mode: 'Markdown' }
+    ).catch((error) => {
+      logger.warn(`Failed to send expiry notification`, { chatId, error: error.message });
+    });
+
+    logger.warn(`Session auto-logout due to inactivity`, { chatId, idleTimeoutMinutes });
+  });
+};
 
 // ═══════════════════════════════════════════════
 // ERROR HANDLER
 // ═══════════════════════════════════════════════
 bot.on('polling_error', (error) => {
-  console.error('❌ [POLLING ERROR]:', error.message);
+  logger.error('Polling error', { error: error.message });
 });
 
 // ═══════════════════════════════════════════════
@@ -250,17 +299,15 @@ bot.on('polling_error', (error) => {
 if (config.nodeEnv === 'prod') {
   // Production - Express server
   app.listen(config.webhook.port, config.webhook.host, () => {
-    console.log(`🚀 Express server listen di ${config.webhook.host}:${config.webhook.port}`);
-    console.log(`📡 Webhook mode AKTIF`);
-    console.log(`🔐 Credentials verification ENABLED`);
+    logger.success(`Express server listening on ${config.webhook.host}:${config.webhook.port}`);
+    logger.info(`Webhook mode ACTIVE`);
+    logger.info(`Credentials verification ENABLED`);
+    logger.success('BOT IS READY TO USE');
   });
 } else {
   // Development - Polling only
-  console.log(`🚀 Bot polling mode AKTIF`);
-  console.log(`🔐 Credentials verification ENABLED`);
-  console.log(`✅ Bot siap menerima pesan (Localhost)`);
+  logger.success(`Bot polling mode ACTIVE`);
+  logger.info(`Credentials verification ENABLED`);
+  logger.success(`Bot is ready to receive messages (Localhost)`);
+  logger.success('BOT IS READY TO USE');
 }
-
-console.log('\n═══════════════════════════════════════════════');
-console.log('🤖 BOT SIAP DIGUNAKAN');
-console.log('═══════════════════════════════════════════════\n');

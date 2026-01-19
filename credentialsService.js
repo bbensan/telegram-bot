@@ -1,7 +1,7 @@
 const config = require('./config');
 
 /**
- * Service untuk verifikasi credentials Coolify
+ * Service for verifying Coolify credentials
  */
 const credentialsService = {
   /**
@@ -23,32 +23,22 @@ const credentialsService = {
    * Format pesan untuk meminta credentials
    */
   getCredentialsPromptMessage() {
-    return `🔐 **VERIFIKASI COOLIFY REQUIRED**
-
-Untuk menggunakan bot ini, Anda harus memberikan credentials Coolify.
-
-Format:
-\`\`\`
-/verify <API_TOKEN> <API_KEY>
-\`\`\`
-
-Contoh:
-\`\`\`
-/verify token123 key456
-\`\`\`
-
-⚠️ Hanya user dengan credentials yang tepat yang bisa menggunakan bot ini.`;
+    return `To use this bot, you must provide your credentials.
+    
+*Format*:
+\`/verify <API_TOKEN> <API_KEY>\`
+`;
   },
 
   /**
-   * Cek apakah user sudah verified (dalam session)
+   * Check if user is verified (in session)
    * Nota: Ini simple. Di production bisa pakai database
    */
   verifiedUsers: new Set(),
 
   addVerifiedUser(chatId) {
     this.verifiedUsers.add(chatId);
-    console.log(`✅ [VERIFIED] Chat ID ${chatId} sudah terverifikasi`);
+    console.log(`✅ [VERIFIED] Chat ID ${chatId} is verified`);
   },
 
   isUserVerified(chatId) {
@@ -57,7 +47,7 @@ Contoh:
 
   removeVerifiedUser(chatId) {
     this.verifiedUsers.delete(chatId);
-    console.log(`❌ [UNVERIFIED] Chat ID ${chatId} dihapus dari verifikasi`);
+    console.log(`❌ [UNVERIFIED] Chat ID ${chatId} removed from verification`);
   },
 
   getAllVerifiedUsers() {
