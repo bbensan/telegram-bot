@@ -6,20 +6,20 @@ const config = {
   nodeEnv: process.env.NODE_ENV || 'dev',
   adminChatId: process.env.ADMIN_CHAT_ID,
 
-  // Credentials (untuk verifikasi)
-  coolify: {
-    apiToken: process.env.COOLIFY_API_TOKEN,
-    apiKey: process.env.COOLIFY_API_KEY,
+  // Credentials (for verification)
+  credentials: {
+    apiToken: process.env.API_TOKEN,
+    apiKey: process.env.API_KEY,
   },
 
-  // Webhook (untuk production)
+  // Webhook (for production)
   webhook: {
     url: process.env.WEBHOOK_URL,
     port: parseInt(process.env.WEBHOOK_PORT) || 8443,
     host: process.env.SERVER_HOST || '0.0.0.0',
   },
 
-  // Polling (untuk development)
+  // Polling (for development)
   polling: {
     enabled: process.env.NODE_ENV === 'dev',
     interval: 300, // ms
@@ -34,15 +34,15 @@ const config = {
   // Validate config
   validate() {
     if (!this.botToken) {
-      throw new Error('❌ BOT_TOKEN tidak ditemukan di .env');
+      throw new Error('❌ BOT_TOKEN not found in .env');
     }
 
     if (this.nodeEnv === 'prod' && !this.webhook.url) {
-      throw new Error('❌ WEBHOOK_URL tidak ditemukan di .env (required untuk production)');
+      throw new Error('❌ WEBHOOK_URL not found in .env (required for production)');
     }
 
-    if (!this.coolify.apiToken || !this.coolify.apiKey) {
-      throw new Error('❌ COOLIFY_API_TOKEN atau COOLIFY_API_KEY tidak ditemukan di .env');
+    if (!this.credentials.apiToken || !this.credentials.apiKey) {
+      throw new Error('❌ API_TOKEN atau API_KEY not found in .env');
     }
 
     return true;
