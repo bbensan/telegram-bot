@@ -4,6 +4,7 @@
  */
 
 import { Telegraf, Markup } from 'telegraf';
+import path from 'path';
 import { generateImage, ASPECT_RATIOS } from '../utils/openaiClient.js';
 import { downloadAndSaveImage } from '../utils/storage.js';
 
@@ -15,20 +16,11 @@ import { downloadAndSaveImage } from '../utils/storage.js';
 function createAspectRatioKeyboard(prompt) {
     return Markup.inlineKeyboard([
         [
-            Markup.button.callback(
-                ASPECT_RATIOS.square.label,
-                `draw_${btoa(prompt)}_square`
-            ),
-            Markup.button.callback(
-                ASPECT_RATIOS.portrait.label,
-                `draw_${btoa(prompt)}_portrait`
-            ),
+            Markup.button.callback('🟢 Square (1:1)', `draw_square`),
+            Markup.button.callback('📱 Portrait (9:16)', `draw_portrait`),
         ],
         [
-            Markup.button.callback(
-                ASPECT_RATIOS.landscape.label,
-                `draw_${btoa(prompt)}_landscape`
-            ),
+            Markup.button.callback('🌄 Landscape (16:9)', `draw_landscape`),
         ],
     ]);
 }
@@ -65,18 +57,19 @@ export function registerDrawHandlers(bot) {
 
         const prompt = args;
 
+        // Store prompt in session for callback handler
+        if (!ctx.session) ctx.session = {};
+        ctx.session.pendingPrompt = prompt;
+
         console.log(`\n🎨 New /draw request from ${ctx.from.username || ctx.from.id}`);
         console.log(`📝 Prompt: "${prompt}"`);
 
         // Show aspect ratio selection keyboard
-        ctx.reply(
+        await ctx.replyWithMarkdown(
             `🎨 *Sedang memproses:*\n` +
             `_"${prompt}"_\n\n` +
             `📐 *Pilih rasio aspek:*`,
-            {
-                parse_mode: 'Markdown',
-                reply_markup: createAspectRatioKeyboard(prompt),
-            }
+            createAspectRatioKeyboard(prompt)
         );
     });
 
@@ -84,18 +77,16 @@ export function registerDrawHandlers(bot) {
      * Callback query handler for aspect ratio selection
      * Handles all draw callback queries
      */
-    bot.action(/^draw_(.+)_(\w+)$/, async (ctx) => {
+    bot.action(/^draw_(\w+)$/, async (ctx) => {
         const match = ctx.match;
-        
-        // Decode base64 encoded prompt
-        let prompt;
-        try {
-            prompt = atob(match[1]);
-        } catch (e) {
-            return ctx.answerCbQuery('⚠️ Error decoding prompt');
+        const aspectKey = match[1];
+
+        // Get prompt from session
+        const prompt = ctx.session?.pendingPrompt;
+        if (!prompt) {
+            return ctx.answerCbQuery('⚠️ Session expired. Please send /draw again.');
         }
 
-        const aspectKey = match[2];
         const aspectRatio = ASPECT_RATIOS[aspectKey]?.value || '1024x1024';
 
         console.log(`\n🎨 Generating image...`);
@@ -163,5 +154,3 @@ export function registerDrawHandlers(bot) {
         }
     });
 }
-
-import path from 'path';

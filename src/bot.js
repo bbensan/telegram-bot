@@ -64,7 +64,7 @@ bot.command('help', async (ctx) => {
 
 📋 *Perintah yang Tersedia:*
 
-🖼️ `/draw [deskripsi]` - Membuat gambar dari deskripsi teks
+🖼️ `/draw` [deskripsi] - Membuat gambar dari deskripsi teks
    • Pilih rasio aspek (Square, Portrait, Landscape)
    • Gambar akan otomatis disimpan ke lokal
 
